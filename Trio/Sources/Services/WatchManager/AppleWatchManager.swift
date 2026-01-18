@@ -4,6 +4,7 @@ import Foundation
 import Swinject
 import UIKit
 import WatchConnectivity
+import WidgetKit
 
 /// Protocol defining the base functionality for Watch communication
 protocol WatchManager {
@@ -470,6 +471,31 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         ]
     }
 
+    /// Persists WatchState data to App Group for complication access
+    /// - Parameter state: Current WatchState containing glucose data to persist
+    private func persistWatchStateToAppGroup(_ state: WatchState) {
+        guard let suiteName = Bundle.main.appGroupSuiteName,
+              let sharedDefaults = UserDefaults(suiteName: suiteName) else {
+            debug(.watchManager, "⌚️❌ Could not access App Group UserDefaults")
+            return
+        }
+
+        // Persist key values for complication access
+        sharedDefaults.set(state.currentGlucose ?? "--", forKey: "currentGlucose")
+        sharedDefaults.set(state.trend ?? "", forKey: "trend")
+        sharedDefaults.set(state.delta ?? "--", forKey: "delta")
+        sharedDefaults.set(state.currentGlucoseColorString ?? "#ffffff", forKey: "currentGlucoseColorString")
+        sharedDefaults.set(state.iob ?? "", forKey: "iob")
+        sharedDefaults.set(state.cob ?? "", forKey: "cob")
+        sharedDefaults.set(state.date.timeIntervalSince1970, forKey: "date")
+        sharedDefaults.set(state.units.rawValue, forKey: "units")
+
+        // Force synchronization
+        sharedDefaults.synchronize()
+
+        debug(.watchManager, "💾 Persisted WatchState to App Group for complications")
+    }
+
     /// Sends the state of type WatchState to the connected Watch
     /// - Parameter state: Current WatchState containing glucose data to be sent
     @MainActor func sendDataToWatch(_ state: WatchState) async {
@@ -500,6 +526,12 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         }
 
         let message: [String: Any] = watchStateToDictionary(from: state)
+
+        // Persist to App Group for complications
+        persistWatchStateToAppGroup(state)
+
+        // Reload watch complications with new glucose data
+        WidgetCenter.shared.reloadTimelines(ofKind: "TrioWatchComplication")
 
         // if session is reachable, it means watch App is in the foreground -> send watchState as message
         // if session is not reachable, it means it's in background -> send watchState as userInfo
