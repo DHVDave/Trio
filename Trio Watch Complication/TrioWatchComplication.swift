@@ -62,6 +62,20 @@ struct TrioWatchComplicationProvider: TimelineProvider {
     // MARK: - Data Loading
 
     private func loadLatestGlucoseFromAppGroup() -> TrioWatchComplicationEntry? {
+        // TEMPORARY DEBUG: Return test data to verify complication can display
+        // TODO: Remove this after confirming complication displays on watch
+        return TrioWatchComplicationEntry(
+            date: Date(),
+            glucoseValue: "125",
+            trend: "→",
+            delta: "+5",
+            glucoseColor: .green,
+            iob: "2.5U",
+            cob: "30g",
+            lastUpdateTime: Date(),
+            units: "mg/dL"
+        )
+
         // Debug: Print the app group suite name
         let suiteName = Bundle.main.appGroupSuiteName
         print("🔍 Complication: App Group Suite Name = \(suiteName ?? "nil")")
