@@ -94,6 +94,10 @@ struct TrioMainWatchView: View {
                     maxYAxisValue: state.maxYAxisValue
                 )
                 .tag(1)
+
+                // Page 3: Debug view for App Group
+                AppGroupDebugView()
+                    .tag(2)
             }
             .onAppear {
                 /// Hard reset variables when main view appears
@@ -103,7 +107,7 @@ struct TrioMainWatchView: View {
             }
             .background(trioBackgroundColor)
             .tabViewStyle(.verticalPage)
-            .digitalCrownRotation($currentPage.doubleBinding(), from: 0, through: 1, by: 1)
+            .digitalCrownRotation($currentPage.doubleBinding(), from: 0, through: 2, by: 1)
             .onChange(of: state.trend) { _, newTrend in
                 withAnimation {
                     updateRotation(for: newTrend)
