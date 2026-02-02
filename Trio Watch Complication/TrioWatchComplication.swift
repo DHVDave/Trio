@@ -119,12 +119,6 @@ struct TrioWatchComplicationEntryView: View {
             TrioAccessoryRectangularView(entry: entry)
         case .accessoryInline:
             TrioAccessoryInlineView(entry: entry)
-        case .graphicCircular:
-            TrioGraphicCircularView(entry: entry)
-        case .graphicCorner:
-            TrioGraphicCornerView(entry: entry)
-        case .graphicRectangular:
-            TrioGraphicRectangularView(entry: entry)
         default:
             // Fallback for unsupported families - show glucose text
             VStack {
@@ -258,97 +252,6 @@ struct TrioAccessoryInlineView: View {
     }
 }
 
-// MARK: - Graphic Complications (watchOS 7-8)
-
-/// Graphic Circular Complication - For older watch faces
-struct TrioGraphicCircularView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        Gauge(value: Double(entry.glucoseValue) ?? 100, in: 40...400) {
-            VStack(spacing: 2) {
-                Text(entry.isStale ? "--" : entry.glucoseValue)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-                HStack(spacing: 1) {
-                    Text(entry.trend)
-                        .font(.system(size: 10))
-                    Text(entry.delta)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                }
-            }
-        } currentValueLabel: {
-            EmptyView()
-        }
-        .gaugeStyle(.accessoryCircular)
-    }
-}
-
-/// Graphic Corner Complication - For corner positions on older faces
-struct TrioGraphicCornerView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(entry.isStale ? "--" : entry.glucoseValue)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-            HStack(spacing: 2) {
-                Text(entry.trend)
-                    .font(.system(size: 14))
-                Text(entry.delta)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-        }
-        .widgetLabel {
-            Gauge(value: Double(entry.glucoseValue) ?? 100, in: 40...400) {
-                EmptyView()
-            }
-            .gaugeStyle(.accessoryCircular)
-        }
-    }
-}
-
-/// Graphic Rectangular Complication - For larger info display
-struct TrioGraphicRectangularView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(entry.isStale ? "--" : entry.glucoseValue)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-                    Text(entry.trend)
-                        .font(.system(size: 18))
-                    Text(entry.delta)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                if !entry.isStale {
-                    HStack(spacing: 8) {
-                        if let iob = entry.iob {
-                            Text("IOB: \(iob)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        if let cob = entry.cob {
-                            Text("COB: \(cob)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-            Spacer()
-        }
-        .padding(4)
-    }
-}
-
 // MARK: - Widget Configuration
 
 @main struct TrioWatchComplication: Widget {
@@ -364,10 +267,7 @@ struct TrioGraphicRectangularView: View {
             .accessoryCircular,
             .accessoryCorner,
             .accessoryRectangular,
-            .accessoryInline,
-            .graphicCircular,
-            .graphicCorner,
-            .graphicRectangular
+            .accessoryInline
         ])
     }
 }
