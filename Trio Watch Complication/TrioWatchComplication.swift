@@ -55,19 +55,28 @@ struct TrioWatchComplicationProvider: TimelineProvider {
     // MARK: - Data Loading
 
     private func loadLatestGlucoseFromAppGroup() -> TrioWatchComplicationEntry? {
-        guard let suiteName = Bundle.main.appGroupSuiteName,
-              let sharedDefaults = UserDefaults(suiteName: suiteName) else {
-            return nil
+        // Debug: Check if we can get the App Group name
+        guard let suiteName = Bundle.main.appGroupSuiteName else {
+            return createDebugEntry(code: "E1") // No AppGroupID in Info.plist
+        }
+
+        guard !suiteName.isEmpty else {
+            return createDebugEntry(code: "E2") // AppGroupID is empty
+        }
+
+        guard let sharedDefaults = UserDefaults(suiteName: suiteName) else {
+            return createDebugEntry(code: "E3") // Can't access App Group
         }
 
         // Read glucose data from App Group (written by iPhone app)
         guard let glucoseValue = sharedDefaults.string(forKey: "currentGlucose"),
-              !glucoseValue.isEmpty,
-              let trend = sharedDefaults.string(forKey: "trend"),
-              let delta = sharedDefaults.string(forKey: "delta"),
-              let colorString = sharedDefaults.string(forKey: "currentGlucoseColorString") else {
-            return createPlaceholderEntry()
+              !glucoseValue.isEmpty else {
+            return createDebugEntry(code: "E4") // No glucose data
         }
+
+        let trend = sharedDefaults.string(forKey: "trend") ?? ""
+        let delta = sharedDefaults.string(forKey: "delta") ?? ""
+        let colorString = sharedDefaults.string(forKey: "currentGlucoseColorString") ?? "#ffffff"
 
         let glucoseColor = Color(hex: colorString) ?? .white
         let lastUpdateTimestamp = sharedDefaults.double(forKey: "date")
@@ -97,6 +106,21 @@ struct TrioWatchComplicationProvider: TimelineProvider {
             cob: nil,
             lastUpdateTime: nil,
             units: "mg/dL"
+        )
+    }
+
+    /// Creates a debug entry with an error code visible on the watch face
+    private func createDebugEntry(code: String) -> TrioWatchComplicationEntry {
+        TrioWatchComplicationEntry(
+            date: Date(),
+            glucoseValue: code,
+            trend: "⚠️",
+            delta: "",
+            glucoseColor: .orange,
+            iob: nil,
+            cob: nil,
+            lastUpdateTime: nil,
+            units: "DBG"
         )
     }
 }
