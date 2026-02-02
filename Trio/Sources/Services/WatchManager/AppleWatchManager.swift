@@ -4,7 +4,6 @@ import Foundation
 import Swinject
 import UIKit
 import WatchConnectivity
-import WidgetKit
 
 /// Protocol defining the base functionality for Watch communication
 protocol WatchManager {
@@ -72,10 +71,8 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 Task {
-                    // Always update complication data (doesn't require WatchConnectivity)
-                    await self.updateComplicationData()
-
                     // Only send via WatchConnectivity if session is ready
+                    // The Watch App will persist data to its local App Group for the complication
                     if let session = self.session, session.isPaired, session.isReachable,
                        session.isWatchAppInstalled
                     {
@@ -474,142 +471,6 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             WatchMessageKeys.confirmBolusFaster: state.confirmBolusFaster,
             WatchMessageKeys.units: state.units.rawValue
         ]
-    }
-
-    /// Persists WatchState data to App Group for complication access
-    /// - Parameter state: Current WatchState containing glucose data to persist
-    private func persistWatchStateToAppGroup(_ state: WatchState) {
-        guard let suiteName = Bundle.main.appGroupSuiteName,
-              let sharedDefaults = UserDefaults(suiteName: suiteName)
-        else {
-            debug(.watchManager, "⌚️❌ Could not access App Group UserDefaults")
-            return
-        }
-
-        // Persist key values for complication access
-        sharedDefaults.set(state.currentGlucose ?? "--", forKey: "currentGlucose")
-        sharedDefaults.set(state.trend ?? "", forKey: "trend")
-        sharedDefaults.set(state.delta ?? "--", forKey: "delta")
-        sharedDefaults.set(state.currentGlucoseColorString ?? "#ffffff", forKey: "currentGlucoseColorString")
-        sharedDefaults.set(state.iob ?? "", forKey: "iob")
-        sharedDefaults.set(state.cob ?? "", forKey: "cob")
-        sharedDefaults.set(state.date.timeIntervalSince1970, forKey: "date")
-        sharedDefaults.set(state.units.rawValue, forKey: "units")
-
-        // Force synchronization
-        sharedDefaults.synchronize()
-
-        debug(.watchManager, "💾 Persisted WatchState to App Group for complications")
-    }
-
-    /// Updates complication data independently of WatchConnectivity session state.
-    /// This ensures complications can receive glucose data even when the Watch app isn't installed
-    /// or the WatchConnectivity session isn't reachable.
-    private func updateComplicationData() async {
-        let state = await setupWatchStateForComplication()
-        persistWatchStateToAppGroup(state)
-        WidgetCenter.shared.reloadTimelines(ofKind: "TrioWatchComplication")
-    }
-
-    /// Builds WatchState for complications without requiring WatchConnectivity session.
-    /// This is a lighter-weight version of setupWatchState() that only fetches data needed for complications.
-    private func setupWatchStateForComplication() async -> WatchState {
-        do {
-            // Get NSManagedObjectIDs
-            let glucoseIds = try await fetchGlucose()
-            let determinationIds = try await determinationStorage.fetchLastDeterminationObjectID(
-                predicate: NSPredicate.predicateFor30MinAgoForDetermination
-            )
-
-            // Get NSManagedObjects
-            let glucoseObjects: [GlucoseStored] = try await CoreDataStack.shared
-                .getNSManagedObject(with: glucoseIds, context: backgroundContext)
-            let determinationObjects: [OrefDetermination] = try await CoreDataStack.shared
-                .getNSManagedObject(with: determinationIds, context: backgroundContext)
-
-            return await backgroundContext.perform {
-                var watchState = WatchState(date: Date())
-
-                // Set IOB and COB
-                let iob = self.iobService.currentIOB ?? 0
-                watchState.iob = Formatter.decimalFormatterWithTwoFractionDigits.string(from: iob as NSNumber)
-
-                if let latestDetermination = determinationObjects.first {
-                    let cob = NSNumber(value: latestDetermination.cob)
-                    watchState.cob = Formatter.integerFormatter.string(from: cob)
-                }
-
-                guard let latestGlucose = glucoseObjects.first else {
-                    return watchState
-                }
-
-                // Assign currentGlucose with proper formatting
-                if self.units == .mgdL {
-                    watchState.currentGlucose = "\(latestGlucose.glucose)"
-                } else {
-                    let mgdlValue = Decimal(latestGlucose.glucose)
-                    let latestGlucoseValue = mgdlValue.formattedAsMmolL
-                    watchState.currentGlucose = "\(latestGlucoseValue)"
-                }
-
-                // Calculate glucose color
-                let hardCodedLow = Decimal(55)
-                let hardCodedHigh = Decimal(220)
-                let isDynamicColorScheme = self.glucoseColorScheme == .dynamicColor
-
-                let highGlucoseValue = isDynamicColorScheme ? hardCodedHigh : self.highGlucose
-                let lowGlucoseValue = isDynamicColorScheme ? hardCodedLow : self.lowGlucose
-                let highGlucoseColorValue = highGlucoseValue
-                let lowGlucoseColorValue = lowGlucoseValue
-                let targetGlucose = self.currentGlucoseTarget
-
-                let currentGlucoseColor = Trio.getDynamicGlucoseColor(
-                    glucoseValue: Decimal(latestGlucose.glucose),
-                    highGlucoseColorValue: highGlucoseColorValue,
-                    lowGlucoseColorValue: lowGlucoseColorValue,
-                    targetGlucose: targetGlucose,
-                    glucoseColorScheme: self.glucoseColorScheme
-                )
-
-                if Decimal(latestGlucose.glucose) <= self.lowGlucose || Decimal(latestGlucose.glucose) >= self.highGlucose {
-                    watchState.currentGlucoseColorString = currentGlucoseColor.toHexString()
-                } else {
-                    watchState.currentGlucoseColorString = "#ffffff" // white when in range; colored when out of range
-                }
-
-                // Convert direction to trend string
-                watchState.trend = latestGlucose.direction
-
-                // Calculate delta if we have at least 2 readings
-                if glucoseObjects.count >= 2 {
-                    var deltaValue = Decimal(glucoseObjects[0].glucose - glucoseObjects[1].glucose)
-
-                    if self.units == .mmolL {
-                        deltaValue = Double(truncating: deltaValue as NSNumber).asMmolL
-                    }
-
-                    let formattedDelta = Formatter.glucoseFormatter(for: self.units)
-                        .string(from: deltaValue as NSNumber) ?? "0"
-                    watchState.delta = deltaValue < 0 ? "\(formattedDelta)" : "+\(formattedDelta)"
-                }
-
-                // Set units
-                watchState.units = self.units
-
-                debug(
-                    .watchManager,
-                    "📱 Setup WatchState for complication - currentGlucose: \(watchState.currentGlucose ?? "nil"), trend: \(watchState.trend ?? "nil"), delta: \(watchState.delta ?? "nil")"
-                )
-
-                return watchState
-            }
-        } catch {
-            debug(
-                .watchManager,
-                "\(DebuggingIdentifiers.failed) Error setting up watch state for complication: \(error)"
-            )
-            return WatchState(date: Date())
-        }
     }
 
     /// Sends the state of type WatchState to the connected Watch
