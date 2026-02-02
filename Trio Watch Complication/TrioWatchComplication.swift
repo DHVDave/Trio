@@ -38,81 +38,40 @@ struct TrioWatchComplicationProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (TrioWatchComplicationEntry) -> Void) {
-        print("📸 Complication: getSnapshot called, isPreview = \(context.isPreview)")
         let entry = loadLatestGlucoseFromAppGroup() ?? placeholder(in: context)
-        print("📸 Complication: Returning snapshot with glucose = \(entry.glucoseValue)")
         completion(entry)
     }
 
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioWatchComplicationEntry>) -> Void) {
-        print("⏰ Complication: getTimeline called at \(Date())")
         let currentEntry = loadLatestGlucoseFromAppGroup() ?? createPlaceholderEntry()
 
-        // Create timeline with single entry
-        let entries = [currentEntry]
-
-        // Update policy: Reload every 5 minutes (CGM readings come ~5 min)
+        // Update every 5 minutes to match CGM reading frequency
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 5, to: Date())!
-        let timeline = Timeline(entries: entries, policy: .after(nextUpdate))
+        let timeline = Timeline(entries: [currentEntry], policy: .after(nextUpdate))
 
-        print("⏰ Complication: Timeline created with glucose = \(currentEntry.glucoseValue), nextUpdate = \(nextUpdate)")
         completion(timeline)
     }
 
     // MARK: - Data Loading
 
     private func loadLatestGlucoseFromAppGroup() -> TrioWatchComplicationEntry? {
-        // TEMPORARY DEBUG: Return test data to verify complication can display
-        // TODO: Remove this after confirming complication displays on watch
-        return TrioWatchComplicationEntry(
-            date: Date(),
-            glucoseValue: "125",
-            trend: "→",
-            delta: "+5",
-            glucoseColor: .green,
-            iob: "2.5U",
-            cob: "30g",
-            lastUpdateTime: Date(),
-            units: "mg/dL"
-        )
-
-        // Debug: Print the app group suite name
-        let suiteName = Bundle.main.appGroupSuiteName
-        print("🔍 Complication: App Group Suite Name = \(suiteName ?? "nil")")
-
-        guard let suiteName = suiteName,
+        guard let suiteName = Bundle.main.appGroupSuiteName,
               let sharedDefaults = UserDefaults(suiteName: suiteName) else {
-            print("❌ Complication: Could not access App Group UserDefaults")
             return nil
         }
 
-        // Debug: Print all keys in shared defaults
-        print("🔍 Complication: Checking App Group for glucose data...")
-        let glucoseValue = sharedDefaults.string(forKey: "currentGlucose")
-        let trend = sharedDefaults.string(forKey: "trend")
-        let delta = sharedDefaults.string(forKey: "delta")
-        let colorString = sharedDefaults.string(forKey: "currentGlucoseColorString")
-
-        print("🔍 Complication: glucoseValue = \(glucoseValue ?? "nil")")
-        print("🔍 Complication: trend = \(trend ?? "nil")")
-        print("🔍 Complication: delta = \(delta ?? "nil")")
-        print("🔍 Complication: colorString = \(colorString ?? "nil")")
-
-        // Read WatchState data persisted by iPhone app
-        guard let glucoseValue = glucoseValue,
-              glucoseValue != "",
-              let trend = trend,
-              let delta = delta,
-              let colorString = colorString else {
-            print("⚠️ Complication: Missing glucose data, returning placeholder")
+        // Read glucose data from App Group (written by iPhone app)
+        guard let glucoseValue = sharedDefaults.string(forKey: "currentGlucose"),
+              !glucoseValue.isEmpty,
+              let trend = sharedDefaults.string(forKey: "trend"),
+              let delta = sharedDefaults.string(forKey: "delta"),
+              let colorString = sharedDefaults.string(forKey: "currentGlucoseColorString") else {
             return createPlaceholderEntry()
         }
 
         let glucoseColor = Color(hex: colorString) ?? .white
         let lastUpdateTimestamp = sharedDefaults.double(forKey: "date")
         let lastUpdate = lastUpdateTimestamp > 0 ? Date(timeIntervalSince1970: lastUpdateTimestamp) : nil
-
-        print("✅ Complication: Loaded glucose data successfully: \(glucoseValue)")
 
         return TrioWatchComplicationEntry(
             date: Date(),
@@ -130,9 +89,9 @@ struct TrioWatchComplicationProvider: TimelineProvider {
     private func createPlaceholderEntry() -> TrioWatchComplicationEntry {
         TrioWatchComplicationEntry(
             date: Date(),
-            glucoseValue: "---",
-            trend: "⋯",
-            delta: "...",
+            glucoseValue: "--",
+            trend: "",
+            delta: "",
             glucoseColor: .gray,
             iob: nil,
             cob: nil,
@@ -151,8 +110,6 @@ struct TrioWatchComplicationEntryView: View {
     var entry: TrioWatchComplicationEntry
 
     var body: some View {
-        print("🎨 Complication: Rendering widgetFamily = \(widgetFamily)")
-
         switch widgetFamily {
         case .accessoryCircular:
             TrioAccessoryCircularView(entry: entry)
@@ -162,12 +119,6 @@ struct TrioWatchComplicationEntryView: View {
             TrioAccessoryRectangularView(entry: entry)
         case .accessoryInline:
             TrioAccessoryInlineView(entry: entry)
-        case .graphicCircular:
-            TrioGraphicCircularView(entry: entry)
-        case .graphicCorner:
-            TrioGraphicCornerView(entry: entry)
-        case .graphicRectangular:
-            TrioGraphicRectangularView(entry: entry)
         default:
             // Fallback for unsupported families - show glucose text
             VStack {
@@ -301,97 +252,6 @@ struct TrioAccessoryInlineView: View {
     }
 }
 
-// MARK: - Graphic Complications (watchOS 7-8)
-
-/// Graphic Circular Complication - For older watch faces
-struct TrioGraphicCircularView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        Gauge(value: Double(entry.glucoseValue) ?? 100, in: 40...400) {
-            VStack(spacing: 2) {
-                Text(entry.isStale ? "--" : entry.glucoseValue)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-                HStack(spacing: 1) {
-                    Text(entry.trend)
-                        .font(.system(size: 10))
-                    Text(entry.delta)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                }
-            }
-        } currentValueLabel: {
-            EmptyView()
-        }
-        .gaugeStyle(.accessoryCircular)
-    }
-}
-
-/// Graphic Corner Complication - For corner positions on older faces
-struct TrioGraphicCornerView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(entry.isStale ? "--" : entry.glucoseValue)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-            HStack(spacing: 2) {
-                Text(entry.trend)
-                    .font(.system(size: 14))
-                Text(entry.delta)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-        }
-        .widgetLabel {
-            Gauge(value: Double(entry.glucoseValue) ?? 100, in: 40...400) {
-                EmptyView()
-            }
-            .gaugeStyle(.accessoryCircular)
-        }
-    }
-}
-
-/// Graphic Rectangular Complication - For larger info display
-struct TrioGraphicRectangularView: View {
-    var entry: TrioWatchComplicationEntry
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(entry.isStale ? "--" : entry.glucoseValue)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(entry.isStale ? .gray : entry.glucoseColor)
-                    Text(entry.trend)
-                        .font(.system(size: 18))
-                    Text(entry.delta)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                if !entry.isStale {
-                    HStack(spacing: 8) {
-                        if let iob = entry.iob {
-                            Text("IOB: \(iob)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        if let cob = entry.cob {
-                            Text("COB: \(cob)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-            Spacer()
-        }
-        .padding(4)
-    }
-}
-
 // MARK: - Widget Configuration
 
 @main struct TrioWatchComplication: Widget {
@@ -407,10 +267,7 @@ struct TrioGraphicRectangularView: View {
             .accessoryCircular,
             .accessoryCorner,
             .accessoryRectangular,
-            .accessoryInline,
-            .graphicCircular,
-            .graphicCorner,
-            .graphicRectangular
+            .accessoryInline
         ])
     }
 }
